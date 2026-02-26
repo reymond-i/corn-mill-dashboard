@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import openpyxl
+from io import BytesIO
+import hashlib
 import plotly.graph_objects as go
 
 st.set_page_config(page_title="Corn Mill Performance Dashboard", layout="wide")
@@ -30,12 +32,13 @@ def to_float(x):
         return np.nan
 
 @st.cache_data(show_spinner=False)
-def load_workbook(path: str):
-    wb = openpyxl.load_workbook(path, data_only=True)
+def load_workbook(file_bytes: bytes, file_hash: str):
+    bio = BytesIO(file_bytes)
+    wb = openpyxl.load_workbook(bio, data_only=True)
     datasets = []
 
     def parse_sheet(sheet_name: str):
-        df = pd.read_excel(path, sheet_name=sheet_name, header=None)
+        df = pd.read_excel(BytesIO(file_bytes), sheet_name=sheet_name, header=None)
         ar = None
         for r in range(len(df)):
             if (df.iloc[r, :] == "Aperture, mm").any():
@@ -191,6 +194,24 @@ def load_workbook(path: str):
 
     metrics_df["Compliance"] = metrics_df.apply(lambda r: "PASS" if compliant(r) else "FAIL", axis=1)
 
+    # Failure reason (Recovery / Losses / Both) for easier reporting
+    def fail_reason(row) -> str:
+        loss_fail = row["Losses_pct"] > 5
+        if row["Standard_Used"] == "2018":
+            rec_fail = row["Main_Product_Recovery_pct"] < 64
+        elif row["Standard_Used"] == "2021":
+            rec_fail = row["Main_Product_Recovery_pct"] < 55
+        else:
+            rec_fail = True
+        if rec_fail and loss_fail:
+            return "Recovery + Losses"
+        if rec_fail:
+            return "Recovery"
+        if loss_fail:
+            return "Losses"
+        return "—"
+    metrics_df["Fail_Reason"] = metrics_df.apply(fail_reason, axis=1)
+
     # Batch-level compliance score (0–100)
     # 50% points = recovery criterion, 50% points = loss criterion
     def compliance_score(row) -> float:
@@ -228,7 +249,7 @@ def fig_psd_single_run(psd_df: pd.DataFrame, run: str):
     fig = go.Figure()
     for outlet in sorted(d["Outlet"].unique().tolist()):
         g = d[d["Outlet"] == outlet].sort_values("Aperture_mm", ascending=True)
-        fig.add_trace(go.Scatter(x=g["Aperture_mm"], y=g["Cum_Pass_pct"], mode="lines", line_shape="spline", name=outlet))
+        fig.add_trace(go.Scatter(x=g["Aperture_mm"], y=g["Cum_Pass_pct"], mode="lines+markers", line_shape="spline", marker=dict(symbol="circle", size=9, line=dict(width=1, color="black")), line=dict(width=2), name=outlet))
     fig.update_layout(
         title=f"Particle Size Distribution — {run}",
         xaxis=dict(title="Aperture (mm) — log scale", type="log"),
@@ -247,7 +268,7 @@ def fig_psd_compare_runs(psd_df: pd.DataFrame, outlet: str, run_order: list[str]
         g = d[d["Run"] == run].sort_values("Aperture_mm", ascending=True)
         if g.empty:
             continue
-        fig.add_trace(go.Scatter(x=g["Aperture_mm"], y=g["Cum_Pass_pct"], mode="lines", line_shape="spline", name=run))
+        fig.add_trace(go.Scatter(x=g["Aperture_mm"], y=g["Cum_Pass_pct"], mode="lines+markers", line_shape="spline", marker=dict(symbol="circle", size=9, line=dict(width=1, color="black")), line=dict(width=2), name=run))
     fig.update_layout(
         title=f"PSD Comparison Across Runs — Outlet: {outlet}",
         xaxis=dict(title="Aperture (mm) — log scale", type="log"),
@@ -278,6 +299,29 @@ def fig_compliance_pie(metrics_df: pd.DataFrame):
     fig.update_layout(title="Compliance Summary (PASS vs FAIL)", height=320, margin=dict(l=20, r=20, t=60, b=10))
     return fig
 
+def fig_pass_gauge(metrics_df: pd.DataFrame):
+    total = len(metrics_df)
+    pass_pct = 0.0 if total == 0 else 100.0 * float((metrics_df["Compliance"] == "PASS").sum()) / float(total)
+    fig = go.Figure(
+        go.Indicator(
+            mode="gauge+number",
+            value=pass_pct,
+            number={"suffix": "%"},
+            title={"text": "PASS rate"},
+            gauge={
+                "axis": {"range": [0, 100]},
+                "bar": {"thickness": 0.25},
+                "steps": [
+                    {"range": [0, 50]},
+                    {"range": [50, 80]},
+                    {"range": [80, 100]},
+                ],
+            },
+        )
+    )
+    fig.update_layout(height=320, margin=dict(l=20, r=20, t=60, b=10))
+    return fig
+
 def year_group_label(sample_no: int) -> str:
     if sample_no <= 8:
         return "2018 group (Run 01–08)"
@@ -288,15 +332,14 @@ st.title("Corn Mill Performance Dashboard")
 with st.sidebar:
     st.header("Upload data")
     st.write("Upload the Excel workbook (.xlsx) to generate the dashboard.")
-    up = st.file_uploader("Upload .xlsx", type=["xlsx"])
+    up = st.file_uploader("Upload .xlsx", type=["xlsx"], key="uploader")
     if up is None:
         st.info("Please upload the Excel file to start.")
         st.stop()
-    tmp_path = Path("uploaded.xlsx")
-    tmp_path.write_bytes(up.getbuffer())
-    data_path = str(tmp_path)
+    file_bytes = up.getvalue()
+    file_hash = hashlib.md5(file_bytes).hexdigest()
 
-metrics_df, sieve_df, psd_df = load_workbook(data_path)
+metrics_df, sieve_df, psd_df = load_workbook(file_bytes, file_hash)
 
 # Derived lists
 all_runs = metrics_df["Run"].tolist()
@@ -374,10 +417,12 @@ with c5:
 st.divider()
 
 # ---- Compliance summary pie + key stats ----
-p1, p2 = st.columns([1.0, 1.3])
+p1, p2, p3 = st.columns([1.0, 1.0, 1.3])
 with p1:
     st.plotly_chart(fig_compliance_pie(metrics_f), use_container_width=True)
 with p2:
+    st.plotly_chart(fig_pass_gauge(metrics_f), use_container_width=True)
+with p3:
     # Small KPI table for filtered subset
     total = len(metrics_f)
     pass_n = int((metrics_f["Compliance"] == "PASS").sum())
@@ -388,9 +433,28 @@ with p2:
     st.write(f"- PASS: **{pass_n}**  |  FAIL: **{fail_n}**")
     st.write(f"- Average compliance score: **{avg_score:.1f}%**")
     st.write("")
-    st.write("Top 5 scores")
-    top5 = metrics_f.sort_values("Compliance_Score_%", ascending=False).head(5)[["Run","Compliance_Score_%","Compliance","Standard_Used"]]
-    st.dataframe(top5, use_container_width=True, hide_index=True)
+    st.write("Runs that PASSED")
+    passed = metrics_f[metrics_f["Compliance"] == "PASS"].copy()
+    if passed.empty:
+        st.info("No runs passed under the selected filter.")
+    else:
+        passed_sorted = passed.sort_values("Compliance_Score_%", ascending=False)[
+            ["Run","Compliance_Score_%","Compliance","Standard_Used"]
+        ]
+        st.dataframe(passed_sorted, use_container_width=True, hide_index=True)
+
+    st.write("Failed runs (with reason)")
+    failed = metrics_f[metrics_f["Compliance"] == "FAIL"].copy()
+    if failed.empty:
+        st.info("No failed runs under the selected filter.")
+    else:
+        failed_sorted = failed.sort_values("Compliance_Score_%", ascending=True)[
+            ["Run","Compliance_Score_%","Standard_Used","Fail_Reason","Main_Product_Recovery_pct","Losses_pct"]
+        ].rename(columns={
+            "Main_Product_Recovery_pct":"Main Recovery (%)",
+            "Losses_pct":"Losses (%)"
+        })
+        st.dataframe(failed_sorted, use_container_width=True, hide_index=True)
 
 st.divider()
 
@@ -410,7 +474,7 @@ with t2:
     st.dataframe(
         show[
             [
-                "Run","Sample_No","Standard_Used","Compliance","Compliance_Score_%",
+                "Run","Sample_No","Standard_Used","Compliance","Fail_Reason","Compliance_Score_%",
                 "Sheet_Tab","Outlet_Group","Variety",
                 "Moisture_Content_pct","Bulk_Density_kgm3","Purity_pct","Input_kg",
                 "Main_Product_Recovery_pct","Byproduct_Recovery_pct","Losses_pct",
@@ -422,6 +486,7 @@ with t2:
             "Main_Product_Recovery_pct":"Main Product Recovery (%)",
             "Byproduct_Recovery_pct":"By-product Recovery (%)",
             "Losses_pct":"Losses (%)",
+            "Fail_Reason":"Fail Reason",
             "Compliance_Score_%":"Compliance Score (%)"
         }),
         use_container_width=True,
