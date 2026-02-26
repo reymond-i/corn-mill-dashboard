@@ -1,20 +1,19 @@
-# Corn Mill Performance Dashboard (Streamlit)
+# Corn Mill • Performance Dashboard (Streamlit)
 
-Interactive dashboard for corn mill sieve analysis data:
-- PSD line graph (semi-log aperture mm vs cumulative % passing)
-- Sieve distribution bar graph (% retained)
-- Metrics table for all runs
-- **Year-based PAES/PNS compliance** (Main Product Recovery + Losses only)
-- **Compliance summary pie chart** (PASS vs FAIL)
-- **Year filter toggle** (2018 group vs 2021 group)
-- **Batch-level compliance score (0–100)**
+A Streamlit dashboard inspired by the layout of the reference web dashboard.
 
-## Compliance logic (as configured)
-- **Run 01–08 (up to 2019)** → uses **2018** threshold: Main Product Recovery ≥64% AND Losses ≤5%
-- **Run 09+ (2021–2025)** → uses **2021** threshold: Main Product Recovery ≥55% AND Losses ≤5%
+## Features
+- Upload-only: upload an Excel (.xlsx) and the dashboard renders immediately.
+- Dashboard / Particle Distribution / Sieve Distribution / Library / Team tabs (layout similar to the reference).
+- PSD curve: semi-log aperture (mm) vs cumulative % passing, smooth curve with **circle markers**.
+- Sieve distribution: **one bar chart per run**, comparing all outlets in the same chart.
+- Year-based compliance:
+  - Run 01–08 → 2018 (Main Product Recovery ≥64%, Losses ≤5%)
+  - Run 09+ → 2021 (Main Product Recovery ≥55%, Losses ≤5%)
+- Failed runs section with reason: Recovery / Losses / Recovery + Losses
+- Batch-level compliance score (0–100)
 
 ## Run locally
-1) Create environment + install
 ```bash
 python -m venv .venv
 # Windows:
@@ -23,11 +22,7 @@ python -m venv .venv
 source .venv/bin/activate
 
 pip install -r requirements.txt
-```
-
-2) Run
-```bash
 streamlit run app.py
 ```
 
-3) Open the app and **upload your Excel (.xlsx)** in the sidebar.
+Then upload your Excel file in the sidebar.
