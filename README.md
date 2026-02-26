@@ -14,10 +14,7 @@ Interactive dashboard for corn mill sieve analysis data:
 - **Run 09+ (2021–2025)** → uses **2021** threshold: Main Product Recovery ≥55% AND Losses ≤5%
 
 ## Run locally
-1) Put your Excel file in the same folder and name it:
-`Corn Mill Data Request (1) edited - AENG 236.xlsx`
-
-2) Create environment + install
+1) Create environment + install
 ```bash
 python -m venv .venv
 # Windows:
@@ -28,10 +25,9 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-3) Run
+2) Run
 ```bash
 streamlit run app.py
 ```
 
-## Deploy
-You can deploy with Streamlit Community Cloud by pointing it to this repo and setting the main file to `app.py`.
+3) Open the app and **upload your Excel (.xlsx)** in the sidebar.

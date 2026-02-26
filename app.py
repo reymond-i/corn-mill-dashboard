@@ -228,7 +228,7 @@ def fig_psd_single_run(psd_df: pd.DataFrame, run: str):
     fig = go.Figure()
     for outlet in sorted(d["Outlet"].unique().tolist()):
         g = d[d["Outlet"] == outlet].sort_values("Aperture_mm", ascending=True)
-        fig.add_trace(go.Scatter(x=g["Aperture_mm"], y=g["Cum_Pass_pct"], mode="lines+markers", name=outlet))
+        fig.add_trace(go.Scatter(x=g["Aperture_mm"], y=g["Cum_Pass_pct"], mode="lines", line_shape="spline", name=outlet))
     fig.update_layout(
         title=f"Particle Size Distribution — {run}",
         xaxis=dict(title="Aperture (mm) — log scale", type="log"),
@@ -247,7 +247,7 @@ def fig_psd_compare_runs(psd_df: pd.DataFrame, outlet: str, run_order: list[str]
         g = d[d["Run"] == run].sort_values("Aperture_mm", ascending=True)
         if g.empty:
             continue
-        fig.add_trace(go.Scatter(x=g["Aperture_mm"], y=g["Cum_Pass_pct"], mode="lines", name=run))
+        fig.add_trace(go.Scatter(x=g["Aperture_mm"], y=g["Cum_Pass_pct"], mode="lines", line_shape="spline", name=run))
     fig.update_layout(
         title=f"PSD Comparison Across Runs — Outlet: {outlet}",
         xaxis=dict(title="Aperture (mm) — log scale", type="log"),
@@ -286,17 +286,15 @@ def year_group_label(sample_no: int) -> str:
 st.title("Corn Mill Performance Dashboard")
 
 with st.sidebar:
-    st.header("Data")
-    use_upload = st.toggle("Upload Excel file (instead of local path)", value=False)
-    if use_upload:
-        up = st.file_uploader("Upload .xlsx", type=["xlsx"])
-        if up is None:
-            st.stop()
-        tmp_path = Path(".") / "uploaded.xlsx"
-        tmp_path.write_bytes(up.getbuffer())
-        data_path = str(tmp_path)
-    else:
-        data_path = st.text_input("Excel path", value=DATA_PATH_DEFAULT)
+    st.header("Upload data")
+    st.write("Upload the Excel workbook (.xlsx) to generate the dashboard.")
+    up = st.file_uploader("Upload .xlsx", type=["xlsx"])
+    if up is None:
+        st.info("Please upload the Excel file to start.")
+        st.stop()
+    tmp_path = Path("uploaded.xlsx")
+    tmp_path.write_bytes(up.getbuffer())
+    data_path = str(tmp_path)
 
 metrics_df, sieve_df, psd_df = load_workbook(data_path)
 
